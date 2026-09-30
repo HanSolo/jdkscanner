@@ -14,12 +14,13 @@ import java.util.stream.Stream;
 
 
 public class JdkDetector {
-    private static final String       USER_HOME                   = System.getProperty("user.home", "");
-    private static final String       SDKMAN_JAVA_CANDIDATES_ROOT = USER_HOME + "/.sdkman/candidates/java";
-    private static final List<String> KNOWN_LINUX_ROOTS           = List.of("/usr/lib/jvm", "/opt", "/usr/java", SDKMAN_JAVA_CANDIDATES_ROOT, "/home/linuxbrew/.linuxbrew/Cellar", "/snap");
-    private static final List<String> KNOWN_MACOS_ROOTS           = List.of("/Library/Java/JavaVirtualMachines", SDKMAN_JAVA_CANDIDATES_ROOT, "/opt/homebrew/Cellar", "/usr/local/Cellar");
-    private static final List<String> KNOWN_WINDOWS_ROOTS         = List.of("C:\\Program Files\\Java", "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Zulu", "C:\\Program Files (x86)\\Java");
-    private static final int          WALK_MAX_DEPTH              = 4; // How deep a filesystem-walk fallback root is searched - deliberately shallow so pointing this at, say, a home directory doesn't turn into a multi-minute full-disk crawl.
+
+    private static       String       userHome() { return System.getProperty("user.home", ""); }
+    private static       String       sdkmanJavaCandidatesRoot() { return userHome() + "/.sdkman/candidates/java"; }
+    private static       List<String> knownLinuxRoots() { return List.of("/usr/lib/jvm", "/opt", "/usr/java", sdkmanJavaCandidatesRoot(), "/home/linuxbrew/.linuxbrew/Cellar", "/snap"); }
+    private static       List<String> knownMacosRoots() { return List.of("/Library/Java/JavaVirtualMachines", sdkmanJavaCandidatesRoot(), "/opt/homebrew/Cellar", "/usr/local/Cellar"); }
+    private static final List<String> KNOWN_WINDOWS_ROOTS = List.of("C:\\Program Files\\Java", "C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Zulu", "C:\\Program Files (x86)\\Java");
+    private static final int          WALK_MAX_DEPTH      = 4;
 
 
     public List<JdkInstallation> detect(final List<Path> extraWalkRoots) {
@@ -64,7 +65,9 @@ public class JdkDetector {
             }
         }
 
-        extraWalkRoots.forEach(extraRoot -> walkForJdkHomes(extraRoot, byRealPath));
+        for (final Path extraRoot : extraWalkRoots) {
+            walkForJdkHomes(extraRoot, byRealPath);
+        }
 
         return new ArrayList<>(byRealPath.values());
     }
@@ -112,16 +115,16 @@ public class JdkDetector {
 
     private List<String> knownRootsForThisOs() {
         final String os = System.getProperty("os.name", "").toLowerCase();
-        if (os.contains("mac")) { return KNOWN_MACOS_ROOTS; }
+        if (os.contains("mac")) { return knownMacosRoots(); }
         if (os.contains("win")) { return KNOWN_WINDOWS_ROOTS; }
-        return KNOWN_LINUX_ROOTS;
+        return knownLinuxRoots();
     }
 
     private String findJavaOnPath() {
         final String path = System.getenv("PATH");
         if (null == path) { return null; }
         final boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
-        final String exeName = windows ? "java.exe" : "java";
+        final String  exeName = windows ? "java.exe" : "java";
         for (final String dir : path.split(java.io.File.pathSeparator)) {
             final Path candidate = Paths.get(dir, exeName);
             if (Files.isExecutable(candidate)) { return candidate.toString(); }
@@ -133,8 +136,7 @@ public class JdkDetector {
         if (!Files.isDirectory(root)) { return; }
         try (Stream<Path> paths = Files.walk(root, WALK_MAX_DEPTH)) {
             paths.filter(p -> p.getFileName() != null && "release".equals(p.getFileName().toString()))
-                 .forEach(releaseFile -> addIfJdkHome(byRealPath, releaseFile.getParent(),
-                                                      "filesystem walk (" + root + ")"));
+                 .forEach(releaseFile -> addIfJdkHome(byRealPath, releaseFile.getParent(), "filesystem walk (" + root + ")"));
         } catch (final IOException | UncheckedIOException e) {
             // Not fatal, just means this one extra root couldn't be fully walked (permissions, a broken symlink, etc). Other roots and already-found installs are unaffected.
         }
@@ -189,7 +191,7 @@ public class JdkDetector {
 
     private boolean javafxBundledViaListModules(final Path home) {
         final boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
-        final Path javaExe = home.resolve(windows ? "bin/java.exe" : "bin/java");
+        final Path    javaExe = home.resolve(windows ? "bin/java.exe" : "bin/java");
         if (!Files.isExecutable(javaExe)) { return false; }
 
         try {
